@@ -139,9 +139,43 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+
+  /* Executes MLFQS Computations*/
+  if(thread_mlfqs)
+  {
+    struct thread* t = thread_current();
+
+    /* Increment Current Thread's Recent CPU*/
+    if(t != idle_thread)
+      ++t->recent_cpu;
+
+    /* Updates Priority*/
+    if(PRIORITY_UPDATE(thread_ticks) && thread_mlfqs)
+      update_priority();
+
+    /* Updates Load average & Recent CPU*/
+    if(ONE_SEC_CHECK(thread_ticks) && thread_mlfqs)
+    {
+      update_load_avg();
+      update_recent_cpu();
+    }
+
+  }
+
+
+
+
+
+
+
+
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+
+
+
+
 }
 
 /* Prints thread statistics. */
@@ -364,7 +398,7 @@ thread_set_priority (int new_priority)
 
   /* Only change current priority if no donations are in effect
    * or if new priority is higher than donated priorities */
-  if (list_empty(&current->lock_held) || new_priority > current->priority)
+  if (list_empty(&current->locks_held) || new_priority > current->priority)
     current->priority = new_priority;
 
   /* If priority decreased, we might need to yield */
@@ -397,7 +431,7 @@ update_priority()
 
   struct thread* t = thread_current();
   ASSERT((t!=NULL))
-  t->priority = PRI_MAX - (t->recent_cpu / 4) - (t->nice*2);
+  t->priority = PRI_MAX - (CONVERT_TO_FIXED_POINT(t->recent_cpu) / 4) - (t->nice*2);
 }
 /* Sets the current thread's nice value to NICE. */
 void
@@ -423,6 +457,7 @@ thread_get_load_avg (void)
   return CONVERT_TO_INT_ROUNDING(MULTIPLY_INT_BY_FIXED_POINT(load_avg , 100));
 }
 void
+
 update_load_avg()
 {
   ASSERT(thread_current() != idle_thread);
@@ -443,8 +478,8 @@ void
 update_recent_cpu()
 {
   struct thread* t = thread_current();
-  ASSERT(t != idle_thread)
-  fixed_point numerator = MULTIPLY_INT_BY_FIXED_POINT(load_avg , 2);\
+  ASSERT(t != idle_thread);
+  fixed_point numerator = MULTIPLY_INT_BY_FIXED_POINT(load_avg , 2);
   fixed_point denominator = ADD_FIXED_POINT_TO_INT(numerator , 1);
   t->recent_cpu = CONVERT_TO_INT_ROUNDING(ADD_FIXED_POINT_TO_INT(DIVIDE_FIXED_POINTS(MULTIPLY_INT_BY_FIXED_POINT(numerator , t->recent_cpu) , denominator) , t->nice));
 }
@@ -538,7 +573,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->nice = 0;
   t->recent_cpu = 0;
   t->original_priority = priority;
-  list_init(&t->lock_held);
+  list_init(&t->locks_held);
   t->waiting_on_lock = NULL;
   t->magic = THREAD_MAGIC;
 

@@ -3,7 +3,7 @@
 
 
 typedef int fixed_point;
-typedef long long int64_t;
+typedef signed long int64_t;
 
 #define EXPONENT 1 << 14
 

@@ -24,6 +24,11 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+
+/* MLFQS CHECKS*/
+#define PRIORITY_UPDATE(_thread_ticks_) !_thread_ticks_%4
+#define ONE_SEC_CHECK(_thread_ticks_) !_thread_ticks_%100
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -91,7 +96,7 @@ typedef int tid_t;
      int nice;                           /* Nice value */
      int recent_cpu;                     /* Recent CPU time. */
      int original_priority;
-     struct list lock_held;
+     struct list locks_held;
      struct lock *waiting_on_lock;
      struct list_elem allelem;           /* List element for all threads list. */
 
@@ -123,6 +128,8 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+
+bool thread_priority_greater(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
