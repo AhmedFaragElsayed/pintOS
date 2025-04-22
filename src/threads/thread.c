@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed_point.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -36,6 +38,9 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
+
+
+static fixed_point load_avg;
 
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame
@@ -164,7 +169,8 @@ thread_print_stats (void)
    Priority scheduling is the goal of Problem 1-3. */
 
 tid_t
-thread_create(const char *name, int priority, thread_func *function, void *aux)
+thread_create (const char *name, int priority,
+               thread_func *function, void *aux)
 {
   struct thread *t;
   struct kernel_thread_frame *kf;
@@ -232,8 +238,8 @@ thread_block (void)
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
-   void
-thread_unblock(struct thread *t)
+void
+thread_unblock (struct thread *t)
 {
   enum intr_level old_level;
 
@@ -313,22 +319,21 @@ thread_exit (void)
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
-   void
-   thread_yield(void)
-   {
-     struct thread *cur = thread_current();
-     enum intr_level old_level;
+void
+thread_yield (void)
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
 
-     ASSERT(!intr_context());
+  ASSERT (!intr_context ());
 
-     old_level = intr_disable();
-     if (cur != idle_thread)
-       list_insert_ordered(&ready_list, &cur->elem, thread_priority_greater, NULL);
-
-     cur->status = THREAD_READY;
-     schedule();
-     intr_set_level(old_level);
-   }
+  old_level = intr_disable ();
+  if (cur != idle_thread)
+    list_push_back (&ready_list, &cur->elem);
+  cur->status = THREAD_READY;
+  schedule ();
+  intr_set_level (old_level);
+}
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -349,7 +354,7 @@ thread_foreach (thread_action_func *func, void *aux)
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
-thread_set_priority(int new_priority)
+thread_set_priority (int new_priority)
 {
   struct thread *current = thread_current();
   int old_priority = current->priority;
@@ -359,7 +364,7 @@ thread_set_priority(int new_priority)
 
   /* Only change current priority if no donations are in effect
    * or if new priority is higher than donated priorities */
-  if (list_empty(&current->locks_held) || new_priority > current->priority)
+  if (list_empty(&current->lock_held) || new_priority > current->priority)
     current->priority = new_priority;
 
   /* If priority decreased, we might need to yield */
@@ -384,11 +389,22 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
+void
+update_priority()
+{
+  if(! thread_mlfqs)
+    return;
+
+  struct thread* t = thread_current();
+  ASSERT((t!=NULL))
+  t->priority = PRI_MAX - (t->recent_cpu / 4) - (t->nice*2);
+}
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED)
 {
   /* Not yet implemented. */
+  thread_current() -> nice = nice;
 }
 
 /* Returns the current thread's nice value. */
@@ -396,7 +412,7 @@ int
 thread_get_nice (void)
 {
   /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -404,15 +420,33 @@ int
 thread_get_load_avg (void)
 {
   /* Not yet implemented. */
-  return 0;
+  return CONVERT_TO_INT_ROUNDING(MULTIPLY_INT_BY_FIXED_POINT(load_avg , 100));
+}
+void
+update_load_avg()
+{
+  ASSERT(thread_current() != idle_thread);
+  int ready_threads = list_size(&ready_list) + list_size(running_thread);
+  fixed_point first_exp = DIVIDE_FIXED_POINT_BY_INT(MULTIPLY_INT_BY_FIXED_POINT(load_avg , 59) , 60);
+  fixed_point second_exp = DIVIDE_FIXED_POINT_BY_INT(CONVERT_TO_FIXED_POINT(ready_threads) ,60);
+  load_avg =  ADD_FIXED_POINTS(first_exp , second_exp);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->recent_cpu * 100;
+}
+
+void
+update_recent_cpu()
+{
+  struct thread* t = thread_current();
+  ASSERT(t != idle_thread)
+  fixed_point numerator = MULTIPLY_INT_BY_FIXED_POINT(load_avg , 2);\
+  fixed_point denominator = ADD_FIXED_POINT_TO_INT(numerator , 1);
+  t->recent_cpu = CONVERT_TO_INT_ROUNDING(ADD_FIXED_POINT_TO_INT(DIVIDE_FIXED_POINTS(MULTIPLY_INT_BY_FIXED_POINT(numerator , t->recent_cpu) , denominator) , t->nice));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -501,8 +535,10 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->nice = 0;
+  t->recent_cpu = 0;
   t->original_priority = priority;
-  list_init(&t->locks_held);
+  list_init(&t->lock_held);
   t->waiting_on_lock = NULL;
   t->magic = THREAD_MAGIC;
 
@@ -529,14 +565,15 @@ alloc_frame (struct thread *t, size_t size)
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
-   static struct thread *
-   next_thread_to_run(void)
-   {
-     if (list_empty(&ready_list))
-       return idle_thread;
-     else
-       return list_entry(list_pop_front(&ready_list), struct thread, elem);
-   }
+static struct thread *
+next_thread_to_run (void)
+{
+  if (list_empty (&ready_list))
+    return idle_thread;
+  else
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+}
+
 /* Completes a thread switch by activating the new thread's page
    tables, and, if the previous thread is dying, destroying it.
 
