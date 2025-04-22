@@ -390,37 +390,70 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
+  ASSERT(PRI_MIN <= new_priority && new_priority <= PRI_MAX);
+
+  enum intr_level old_level = intr_disable();  /* Disable interrupts for atomicity */
+
   struct thread *current = thread_current();
   int old_priority = current->priority;
 
-  /* Update the thread's original priority */
+  /* Update original priority */
   current->original_priority = new_priority;
 
-  /* Only change current priority if no donations are in effect
-   * or if new priority is higher than donated priorities */
-  if (list_empty(&current->locks_held) || new_priority > current->priority)
+  /* If no donations are in effect, also update current priority */
+  if (list_empty(&current->locks_held))
+  current->priority = new_priority;
+else
+{
+  /* If new priority is higher than donated priorities, use it */
+  if (new_priority > current->priority)
     current->priority = new_priority;
 
-  /* If priority decreased, we might need to yield */
-  if (current->priority < old_priority)
-    thread_yield_to_higher_priority();
+  /* Otherwise, keep the donated priority */
 }
+// MISSING: Call to thread_yield_to_higher_priority() is needed here!
+thread_yield_to_higher_priority();
+  intr_set_level(old_level);  /* Re-enable interrupts */
+
+    /* Otherwise, keep the donated priority */
+
+}
+
 
 void
 thread_yield_to_higher_priority(void)
 {
-  if (!list_empty(&ready_list) &&
-      thread_current()->priority <
-      list_entry(list_front(&ready_list), struct thread, elem)->priority)
+  enum intr_level old_level = intr_disable();
+
+  /* Only yield if we're not in an interrupt context */
+  if (!intr_context())
+  {
+    /* Check if there's a higher priority thread in the ready list */
+    if (!list_empty(&ready_list))
     {
-      thread_yield();
+      /* Sort the ready list by priority (highest first) */
+      struct list_elem *max_elem = list_max(&ready_list,
+        thread_priority_greater,
+        NULL);
+struct thread *highest_thread = list_entry(max_elem,
+             struct thread,
+             elem);
+
+if (highest_thread->priority > thread_current()->priority)
+thread_yield();
     }
+  }
+
+  intr_set_level(old_level);
 }
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void)
 {
-  return thread_current ()->priority;
+  enum intr_level old_level = intr_disable();
+  int priority = thread_current()->priority;
+  intr_set_level(old_level);
+  return priority;
 }
 
 void
