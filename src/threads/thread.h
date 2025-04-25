@@ -99,7 +99,7 @@ typedef int tid_t;
      struct list locks_held;
      struct lock *waiting_on_lock;
      struct list_elem allelem;           /* List element for all threads list. */
-
+     int64_t time_to_wakeup; 
      /* Shared between thread.c and synch.c. */
      struct list_elem elem;              /* List element. */
 

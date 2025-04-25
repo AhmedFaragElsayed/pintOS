@@ -17,6 +17,9 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+/* a list for sleeping list untill specific time*/
+static struct list sleepy_threads;
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -35,6 +38,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
+  list_init(&sleepy_threads);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -84,17 +88,40 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/* Sleeps for approximately TICKS timer ticks.  Interrupts must
-   be turned on. */
+/* Puts the current thread to sleep for at least TICKS timer ticks.
+   The thread is added to the sleepy_threads list, which is sorted
+   by wake-up time. Interrupts are disabled during this operation
+   to ensure atomicity and prevent race conditions, as the list
+   and thread state are modified. Once the thread is added to the
+   list, it is blocked until the timer interrupt handler wakes it
+   up. */
+
+static bool
+sleepy_threads_cmp(const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
+{
+  const struct thread * thread_a = list_entry(a,struct thread, elem);
+  const struct thread * thread_b = list_entry(b,struct thread, elem);
+
+  return thread_a->time_to_wakeup < thread_b->time_to_wakeup;
+}   
+
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+    if (ticks <= 0) return;
+    ASSERT (intr_get_level() == INTR_ON);
+    enum intr_level intr_old_level = intr_disable(); 
+    struct thread * cur_thread = thread_current();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+    cur_thread->time_to_wakeup = ticks + timer_ticks ();
+
+    list_insert_ordered(&sleepy_threads, &cur_thread->elem, sleepy_threads_cmp, NULL);
+
+    thread_block();
+    intr_set_level(intr_old_level);
 }
+
+
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
    turned on. */
@@ -172,6 +199,20 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  /*the interrupt is already disable*/
+  while (!list_empty(&sleepy_threads))
+  {
+    struct thread * cur_thread = list_entry(list_front(&sleepy_threads), struct thread , elem);
+    if (cur_thread->time_to_wakeup > ticks)
+    {
+      break;
+    }
+    list_pop_front(&sleepy_threads);
+    thread_unblock(cur_thread);
+  }
+  
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
