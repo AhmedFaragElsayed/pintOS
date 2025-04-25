@@ -471,7 +471,8 @@ if (tb == NULL)
 return true;
 return ta->priority > tb->priority;
 }
-void cond_signal(struct condition *cond, struct lock *lock)
+void
+cond_signal(struct condition *cond, struct lock *lock)
 {
   ASSERT(cond != NULL);
   ASSERT(lock != NULL);
@@ -480,11 +481,12 @@ void cond_signal(struct condition *cond, struct lock *lock)
 
   if (!list_empty(&cond->waiters))
   {
-    /* Find the highest priority waiter */
-    struct list_elem *max_elem = list_max(&cond->waiters,
-                                        sema_waiter_priority_greater, NULL);
-    list_remove(max_elem);
-    sema_up(&list_entry(max_elem, struct semaphore_elem, elem)->semaphore);
+    /* Sort the waiters list by priority (highest first) */
+    list_sort(&cond->waiters, sema_waiter_priority_greater, NULL);
+
+    /* Wake up the highest priority waiter */
+    sema_up(&list_entry(list_pop_front(&cond->waiters),
+                      struct semaphore_elem, elem)->semaphore);
   }
 }
 
