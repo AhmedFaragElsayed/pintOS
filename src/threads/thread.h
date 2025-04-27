@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed_17p14.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,11 +24,15 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define DEFAULT_NICE 0                  /* Default nice value for the initial thread*/
+#define DEFAULT_RECENT_CPU 0            /* Default recent cpu value for the initial thread*/
+#define DEFAULT_LOAD_AVG 0              /* Default load average value at system boot*/
 
 
-/* MLFQS CHECKS*/
-#define PRIORITY_UPDATE(_thread_ticks_) !_thread_ticks_%4
-#define ONE_SEC_CHECK(_thread_ticks_) !_thread_ticks_%100
+/* Keeps thread priority within range in mlfqs mode (0:63)*/
+#define PRIORITY_WITHIN_RANGE(pri_) (pri_<PRI_MIN ? PRI_MIN : (pri_>PRI_MAX ? PRI_MAX : pri_) )
+
+#define HIGHER_PRI(pri_1 , pri_2) (pri_1 > pri_2 ? pri_1 : pri_2)
 
 /* A kernel thread or user process.
 
@@ -94,12 +99,14 @@ typedef int tid_t;
      uint8_t *stack;                     /* Saved stack pointer. */
      int priority;                       /* Priority. */
      int nice;                           /* Nice value */
-     int recent_cpu;                     /* Recent CPU time. */
+     fixed_17p14_t recent_cpu;                     /* Recent CPU time. */
      int original_priority;
      struct list locks_held;
      struct lock *waiting_on_lock;
      struct list_elem allelem;           /* List element for all threads list. */
-     int64_t time_to_wakeup; 
+     int64_t time_to_wakeup;
+
+
      /* Shared between thread.c and synch.c. */
      struct list_elem elem;              /* List element. */
 
@@ -138,9 +145,13 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 void thread_yield_to_higher_priority(void);
-bool thread_priority_greater(const struct list_elem *a,
+bool _thread_priority_greater(const struct list_elem *a,
    const struct list_elem *b,
-   void *aux);
+   void *aux UNUSED);
+
+bool _thread_priority_greater(const struct list_elem *a,
+   const struct list_elem *b,
+   void *aux UNUSED);
 
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
@@ -151,8 +162,16 @@ int thread_get_priority (void);
 void thread_set_priority (int);
 
 int thread_get_nice (void);
-void thread_set_nice (int);
+void thread_set_nice (int nice UNUSED);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void sort_ready_list(void);
+void check_to_yield(void);
+void inc_curr_thread_recent_cpu(void);
+void update_priority(struct thread* t , void* aux UNUSED);
+void update_recent_cpu (struct thread* t, void* aux UNUSED);
+void update_load_avg (void);
+
 
 #endif /* threads/thread.h */

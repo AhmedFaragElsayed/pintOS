@@ -282,7 +282,8 @@ void lock_init(struct lock *lock)
 
    This function will not sleep, so it may be called within an
    interrupt handler. */
-bool lock_try_acquire(struct lock *lock)
+bool
+lock_try_acquire(struct lock *lock)
 {
   bool success;
 
@@ -354,7 +355,9 @@ struct thread *waiter = list_entry(max_elem, struct thread, elem);
      /* We may need to yield if our priority decreased */
      thread_yield_to_higher_priority();
    }
-void priority_restore(struct thread *t)
+
+void
+priority_restore(struct thread *t)
 {
   /* Start with original priority */
   t->priority = t->original_priority;
@@ -415,7 +418,8 @@ void cond_init(struct condition *cond)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-void cond_wait(struct condition *cond, struct lock *lock)
+void
+cond_wait(struct condition *cond, struct lock *lock)
 {
   struct semaphore_elem waiter;
 
@@ -440,7 +444,8 @@ void cond_wait(struct condition *cond, struct lock *lock)
    interrupt handler. */
 /* Returns true if semaphore a has higher priority waiters than semaphore b */
 /* Returns true if semaphore a has higher priority waiters than semaphore b */
-bool sema_waiter_priority_greater(const struct list_elem *a,
+bool
+sema_waiter_priority_greater(const struct list_elem *a,
   const struct list_elem *b, void *aux UNUSED)
 {
 struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
@@ -471,6 +476,7 @@ if (tb == NULL)
 return true;
 return ta->priority > tb->priority;
 }
+
 void
 cond_signal(struct condition *cond, struct lock *lock)
 {
