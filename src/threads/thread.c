@@ -204,6 +204,21 @@ thread_create (const char *name, int priority,
 	sf->eip = switch_entry;
 	sf->ebp = 0;
 
+	/* Set up parent-child relationship */
+    t->parent = thread_current();
+    
+    /* Create child record for the parent */
+    if (t->parent != NULL) {
+        struct child *ch = malloc(sizeof(struct child));
+        if (ch != NULL) {
+            ch->tid = tid;
+            ch->exit_status = -1;
+            sema_init(&ch->wait_sema, 0);
+            ch->has_exited = false;
+            list_push_back(&thread_current()->children, &ch->elem);
+        }
+    }
+
 	intr_set_level (old_level);
 
 	/* Add to run queue. */
@@ -471,6 +486,9 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->stack = (uint8_t *) t + PGSIZE;
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	t->parent = running_thread();
+	list_init(&t->children);
 
 	old_level = intr_disable ();
 	list_push_back (&all_list, &t->allelem);

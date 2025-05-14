@@ -96,11 +96,42 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int
-process_wait (tid_t child_tid UNUSED)
-{
-	return -1;
-}
+   int
+   process_wait (tid_t child_tid UNUSED)
+   {
+	 struct thread *current = thread_current();
+	 struct list_elem *element;
+	 struct child *child = NULL;
+	 int status;
+   
+	 /* Look for the child in the current thread's children list */
+	 for (element = list_begin(&current->children); 
+		  element != list_end(&current->children); 
+		  element = list_next(element))
+	 {
+	   struct child *tmp = list_entry(element, struct child, elem);
+	   if (tmp->tid == child_tid)
+	   {
+		 child = tmp;
+		 break;
+	   }
+	 }
+   
+	 /* If child not found or already waited for, return -1 */
+	 if (child == NULL)
+	   return -1;
+   
+	 /* If child hasn't exited yet, wait for it */
+	 if (!child->has_exited)
+	   sema_down(&child->wait_sema);
+   
+	 /* Get the exit status and remove the child from the list */
+	 status = child->exit_status;
+	 list_remove(element);
+	 free(child);
+   
+	 return status;
+   }
 
 /* Free the current process's resources. */
 void

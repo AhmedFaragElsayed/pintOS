@@ -94,6 +94,10 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    struct thread *parent;               /* Parent thread. */
+    struct list children;               /* List of child threads. */
+    
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -102,6 +106,17 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+  struct child
+   {
+      tid_t tid;                          /* Child thread identifier. */
+      struct list_elem elem;              /* List element for child threads. */
+      int exit_status;                    /* Exit status of the child thread. */
+      struct semaphore wait_sema;         /* Semaphore for waiting on child. */
+      bool has_exited;                    /* Flag to check if child has exited. */
+   };
+
+  
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
