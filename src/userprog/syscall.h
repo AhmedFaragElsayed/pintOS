@@ -3,6 +3,15 @@
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #define BYTE 1
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "threads/synch.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "threads/malloc.h"
+#include "devices/input.h"
+#include "devices/shutdown.h"
+#include <string.h>
 
 typedef int pid_t;
 

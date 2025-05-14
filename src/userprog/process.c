@@ -103,10 +103,10 @@ start_process (void *file_name_)
 	 struct list_elem *element;
 	 struct child *child = NULL;
 	 int status;
-   
+
 	 /* Look for the child in the current thread's children list */
-	 for (element = list_begin(&current->children); 
-		  element != list_end(&current->children); 
+	 for (element = list_begin(&current->children);
+		  element != list_end(&current->children);
 		  element = list_next(element))
 	 {
 	   struct child *tmp = list_entry(element, struct child, elem);
@@ -116,20 +116,20 @@ start_process (void *file_name_)
 		 break;
 	   }
 	 }
-   
+
 	 /* If child not found or already waited for, return -1 */
 	 if (child == NULL)
 	   return -1;
-   
+
 	 /* If child hasn't exited yet, wait for it */
 	 if (!child->has_exited)
 	   sema_down(&child->wait_sema);
-   
+
 	 /* Get the exit status and remove the child from the list */
 	 status = child->exit_status;
 	 list_remove(element);
 	 free(child);
-   
+
 	 return status;
    }
 
@@ -156,7 +156,7 @@ process_exit (void)
 		pagedir_activate (NULL);
 		pagedir_destroy (pd);
 	}
-	
+
 }
 
 /* Sets up the CPU for running user code in the current
@@ -273,7 +273,8 @@ load (const char *file_name, void (**eip) (void), void **esp, char **save_ptr)
 		goto done;
 	}
 	file_deny_write(file);
-
+	 /* Store the executable file */
+	 thread_current()->executable = file;
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)

@@ -96,12 +96,19 @@ struct thread
 
     struct thread *parent;               /* Parent thread. */
     struct list children;               /* List of child threads. */
-    
 
-#ifdef USERPROG
+    /* File descriptors for this process. */
+    struct file *fd_table[128];         /* File descriptor table. */
+    int next_fd;                        /* Next file descriptor to allocate. */
+    struct file *executable;            /* Executable file. */
+
+    #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-#endif
+    int exit_status;                    /* Exit status. */
+    struct list child_list;             /* List of child processes. */
+    struct lock child_lock;             /* Lock for child operations. */
+    #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -116,7 +123,7 @@ struct thread
       bool has_exited;                    /* Flag to check if child has exited. */
    };
 
-  
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

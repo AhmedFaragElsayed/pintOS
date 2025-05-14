@@ -5,7 +5,7 @@
 #include "threads/thread.h"
 
 static void syscall_handler (struct intr_frame *);
-
+static struct lock filesys_lock;
 
 
 void*
@@ -61,6 +61,7 @@ void
 syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
 }
 
 static void
@@ -285,30 +286,103 @@ sys_wait (pid_t pid)
 bool
 sys_create (const char *file, unsigned initial_size)
 {
+  if (file == NULL)
+    sys_exit(-1);
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+
+  return success;
 
 }
 
 bool
 sys_remove (const char *file)
 {
+  if (file == NULL)
+    sys_exit(-1);
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_remove(file);
+  lock_release(&filesys_lock);
+
+  return success;
 
 }
 
 int
 sys_open (const char *file)
 {
+  if (file == NULL)
+    return -1;
+
+  lock_acquire(&filesys_lock);
+  struct file *f = filesys_open(file);
+  lock_release(&filesys_lock);
+
+  if (f == NULL)
+    return -1;
+
+  /* Find an unused file descriptor */
+  struct thread *t = thread_current();
+  int fd;
+
+  for (fd = 2; fd < 128; fd++) {  /* Skip fd 0 and 1 (stdin/stdout) */
+    if (t->fd_table[fd] == NULL) {
+      t->fd_table[fd] = f;
+      return fd;
+    }
+  }
+
+  /* No available fd */
+  file_close(f);
+  return -1;
 
 }
 
 int
 sys_filesize (int fd)
 {
+  struct thread *t = thread_current();
+
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return -1;
+
+  lock_acquire(&filesys_lock);
+  int size = file_length(t->fd_table[fd]);
+  lock_release(&filesys_lock);
+
+  return size;
 
 }
 
 int
 sys_read (int fd, void *buffer, unsigned size)
 {
+  if (buffer == NULL)
+    sys_exit(-1);
+
+  /* Handle STDIN */
+  if (fd == 0) {
+    uint8_t *buf = buffer;
+    unsigned i;
+    for (i = 0; i < size; i++)
+      buf[i] = input_getc();
+    return size;
+  }
+
+  struct thread *t = thread_current();
+
+  /* Check for valid fd */
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return -1;
+
+  lock_acquire(&filesys_lock);
+  int bytes_read = file_read(t->fd_table[fd], buffer, size);
+  lock_release(&filesys_lock);
+
+  return bytes_read;
 
 }
 
