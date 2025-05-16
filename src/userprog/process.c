@@ -118,8 +118,11 @@ start_process (void *file_name_)
 	 }
 
 	 /* If child not found or already waited for, return -1 */
-	 if (child == NULL)
+	 if (child == NULL ||(child->is_waited)&& child)
 	   return -1;
+	   
+	 /* Mark the child as waited for */
+	 child->is_waited = true;
 
 	 /* If child hasn't exited yet, wait for it */
 	 if (!child->has_exited)
@@ -128,7 +131,7 @@ start_process (void *file_name_)
 	 /* Get the exit status and remove the child from the list */
 	 status = child->exit_status;
 	 list_remove(element);
-	 free(child);
+	 
 
 	 return status;
    }

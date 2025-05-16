@@ -184,6 +184,15 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+	 struct child *ch = malloc(sizeof(struct child));
+        if (ch != NULL) {
+            ch->tid = tid;
+            ch->exit_status = t->exit_status;
+            sema_init(&ch->wait_sema, 0);
+            ch->has_exited = false;
+            list_push_back(&thread_current()->children, &ch->elem);
+        }
+
 	/* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack'
      member cannot be observed. */
@@ -203,21 +212,6 @@ thread_create (const char *name, int priority,
 	sf = alloc_frame (t, sizeof *sf);
 	sf->eip = switch_entry;
 	sf->ebp = 0;
-
-	/* Set up parent-child relationship */
-    t->parent = thread_current();
-
-    /* Create child record for the parent */
-    if (t->parent != NULL) {
-        struct child *ch = malloc(sizeof(struct child));
-        if (ch != NULL) {
-            ch->tid = tid;
-            ch->exit_status = -1;
-            sema_init(&ch->wait_sema, 0);
-            ch->has_exited = false;
-            list_push_back(&thread_current()->children, &ch->elem);
-        }
-    }
 
 	intr_set_level (old_level);
 	/* Initialize file descriptors. */
