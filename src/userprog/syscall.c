@@ -3,7 +3,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "userprog/process.h"
 static void syscall_handler (struct intr_frame *);
 
 
@@ -261,13 +261,40 @@ sys_halt (void)
 void
 sys_exit (int status)
 {
-  struct thread* curr_thread = thread_current();
+  
+  struct thread *curr_thread = thread_current();
   curr_thread->exit_status = status;
+  
 
-  //CLOSE CHILDREN
+  struct thread *parent = curr_thread->parent;
+  if (!parent)
+  {
+    tid_t child_tid = curr_thread->tid;
+    struct list_elem *element;
+    struct child *child = NULL;
+
+    for (element = list_begin(&curr_thread->children); 
+		  element != list_end(&curr_thread->children); 
+		  element = list_next(element))
+      {
+        struct child *tmp = list_entry(element, struct child, elem);
+        if (tmp->tid == child_tid)
+        {
+        child = tmp;
+        break;
+        }
+      }
+
+      child->exit_status =status;
+      child->has_exited = true;
+      sema_up(&child->wait_sema);
+    
+  }
+  
+  printf("%s: exit(%d)\n", curr_thread->name , status);
 
   thread_exit();
-  printf("%s: exit(%d)\n", curr_thread->name , status);
+
 }
 
 pid_t
