@@ -103,13 +103,13 @@ struct thread
     int next_fd;                        /* Next file descriptor to allocate. */
     struct file *executable;            /* Executable file. */
 
-    #ifdef USERPROG
+   //  #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-   //  int exit_status;                    /* Exit status. */
-   //  struct list child_list;             /* List of child processes. */
-    struct lock child_lock;             /* Lock for child operations. */
-    #endif
+    struct child* waiting_on;
+    struct semaphore sema_wait;
+    bool child_loaded;
+   //  #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -117,11 +117,10 @@ struct thread
 
   struct child
    {
+      struct thread* self;                /* Pointer to the thread struct */
       tid_t tid;                          /* Child thread identifier. */
       struct list_elem elem;              /* List element for child threads. */
       int exit_status;                    /* Exit status of the child thread. */
-      bool is_waited;                   /* Flag to check if waited. */
-      struct semaphore wait_sema;         /* Semaphore for waiting on child. */
       bool has_exited;                    /* Flag to check if child has exited. */
    };
 

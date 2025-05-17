@@ -49,6 +49,14 @@ process_execute (const char *file_name)
 	tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
+
+	sema_down(&thread_current()->sema_wait);
+
+	if(!thread_current()->child_loaded)
+		return TID_ERROR;
+
+
+
 	return tid;
 }
 
@@ -75,7 +83,16 @@ start_process (void *file_name_)
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
+	{
+		thread_current()->parent->child_loaded = false;
+		sema_up(&thread_current()->parent->sema_wait);
 		thread_exit ();
+	}
+	else
+	{
+		thread_current()->child_loaded = true;
+	}
+
 
 	/* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -96,45 +113,43 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-   int
-   process_wait (tid_t child_tid UNUSED)
-   {
-	 struct thread *current = thread_current();
-	 struct list_elem *element;
-	 struct child *child = NULL;
-	 int status;
+// ...existing code...
+int
+process_wait (tid_t child_tid)
+{
+    struct thread *current = thread_current();
+    struct list_elem *e;
+    struct child *child = NULL;
 
-	 /* Look for the child in the current thread's children list */
-	 for (element = list_begin(&current->children);
-		  element != list_end(&current->children);
-		  element = list_next(element))
-	 {
-	   struct child *tmp = list_entry(element, struct child, elem);
-	   if (tmp->tid == child_tid)
-	   {
-		 child = tmp;
-		 break;
-	   }
-	 }
+    /* Find the child in the current thread's children list */
+    for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
+        struct child *tmp = list_entry(e, struct child, elem);
+        if (tmp->tid == child_tid) {
+            child = tmp;
+            break;
+        }
+    }
 
-	 /* If child not found or already waited for, return -1 */
-	 if (child == NULL ||(child->is_waited)&& child)
-	   return -1;
-	   
-	 /* Mark the child as waited for */
-	 child->is_waited = true;
+    /* If child not found or already waited for, return -1 */
+    if (child == NULL || current->waiting_on == child) {
+        return -1;
+    }
 
-	 /* If child hasn't exited yet, wait for it */
-	 if (!child->has_exited)
-	   sema_down(&child->wait_sema);
+    current->waiting_on = child;
 
-	 /* Get the exit status and remove the child from the list */
-	 status = child->exit_status;
-	 list_remove(element);
-	 
+    /* If the child hasn't exited yet, wait for it */
+    if (!child->has_exited) {
+        sema_down(&child->self->sema_wait);
+    }
 
-	 return status;
-   }
+    int status = child->exit_status;
+
+    /* Remove child from list and free its struct */
+    list_remove(&child->elem);
+    free(child);
+
+    return status;
+}
 
 /* Free the current process's resources. */
 void

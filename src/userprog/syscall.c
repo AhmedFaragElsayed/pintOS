@@ -3,31 +3,24 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "userprog/process.h"
+
 static void syscall_handler (struct intr_frame *);
 static struct lock filesys_lock;
 
-
 void*
-get_kernel_vaddr(const void* vaddr)
+get_next_arg(void** esp, unsigned arg_size)
 {
-  return pagedir_get_page(thread_current()->pagedir , vaddr);
-}
-
-void*
-get_next_arg(void** esp , const unsigned next_ptr_size)
-{
+  validate_buffer(*esp , arg_size);
   void* temp_esp = *esp;
-  *esp+= next_ptr_size;
-  validate_ptr(temp_esp);
-  return get_kernel_vaddr(temp_esp);
+  *esp += arg_size;
+  return temp_esp;
 }
 
 
 void
-validate_ptr(const void* ptr)
+validate_vaddr(const void* ptr)
 {
-  if(!is_user_vaddr(ptr) || get_kernel_vaddr(ptr)==NULL)
+  if(!ptr || !VALID_ADDRESS(ptr) || !pagedir_get_page(thread_current()->pagedir, ptr))
   {
     sys_exit(-1);
   }
@@ -39,21 +32,19 @@ validate_buffer(const void* buffer , const unsigned size)
 {
   for(unsigned i = 0 ; i < size ; ++i)
   {
-    validate_ptr(buffer + BYTE*i);
+    validate_vaddr(buffer + BYTE*i);
   }
 }
 
-void
-validate_string(char* str)
+void validate_string(char* str)
 {
-  for(; *str!= '\0' ; ++str)
+  validate_vaddr(str);
+
+  for(; *str!='\0' ; ++str)
   {
-    validate_ptr((void*)str);
+    validate_vaddr(str);
   }
 }
-
-
-
 
 
 
@@ -67,9 +58,10 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
+  validate_vaddr(f->esp);
   void* temp_esp = f->esp;
 
-  const int sys_call = *(int*) get_next_arg(&temp_esp , sizeof(int));
+  int sys_call = *(int*) get_next_arg(&temp_esp , sizeof(int));
 
 
   switch(sys_call)
@@ -127,6 +119,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
 
     default:
+      sys_exit(-1);
       break;
 
   }
@@ -151,7 +144,7 @@ sys_exit_wrapper (void* esp)
 void
 sys_exec_wrapper (void* esp , uint32_t* eax)
 {
-  const char* file = get_next_arg(&esp , sizeof(char*));
+  const char* file = *(char**)get_next_arg(&esp , sizeof(char*));
 
   *eax = sys_exec(file);
 }
@@ -167,7 +160,7 @@ sys_wait_wrapper (void* esp , uint32_t* eax)
 void
 sys_create_wrapper (void* esp , uint32_t* eax)
 {
-  const char* file = get_next_arg(&esp , sizeof(char*));
+  const char* file = *(char**)get_next_arg(&esp , sizeof(char*));
   unsigned initial_size = *(unsigned*) get_next_arg(&esp , sizeof(unsigned));
 
   validate_string((char*)file);
@@ -178,7 +171,7 @@ sys_create_wrapper (void* esp , uint32_t* eax)
 void
 sys_remove_wrapper (void* esp , uint32_t* eax)
 {
-  const char* file = get_next_arg(&esp , sizeof(char*));
+  const char* file = *(char**)get_next_arg(&esp , sizeof(char*));
 
   validate_string((char*)file);
 
@@ -188,7 +181,7 @@ sys_remove_wrapper (void* esp , uint32_t* eax)
 void
 sys_open_wrapper (void* esp , uint32_t* eax)
 {
-  const char* file = get_next_arg(&esp , sizeof(char*));
+  const char* file = *(char**)get_next_arg(&esp , sizeof(char*));
 
   validate_string((char*)file);
 
@@ -207,7 +200,7 @@ void
 sys_read_wrapper (void* esp , uint32_t* eax)
 {
   int fd = *(int*) get_next_arg(&esp , sizeof(int));
-  void* buffer = get_next_arg(&esp , sizeof(void*));
+  void* buffer = *(void**)get_next_arg(&esp , sizeof(void*));
   unsigned size = *(unsigned*) get_next_arg(&esp , sizeof(unsigned));
 
   validate_buffer(buffer , size);
@@ -219,7 +212,7 @@ void
 sys_write_wrapper (void* esp , uint32_t* eax)
 {
   int fd = *(int*) get_next_arg(&esp , sizeof(int));
-  const void* buffer = get_next_arg(&esp , sizeof(void*));
+  const void* buffer = *(void**)get_next_arg(&esp , sizeof(void*));
   unsigned size = *(unsigned*) get_next_arg(&esp , sizeof(unsigned));
 
   validate_buffer(buffer , size);
@@ -262,20 +255,22 @@ sys_halt (void)
 void
 sys_exit (int status)
 {
-  
+
   struct thread *curr_thread = thread_current();
   curr_thread->exit_status = status;
-  
+
 
   struct thread *parent = curr_thread->parent;
-  if (!parent)
-  {
+
+
     tid_t child_tid = curr_thread->tid;
     struct list_elem *element;
     struct child *child = NULL;
 
-    for (element = list_begin(&curr_thread->children); 
-		  element != list_end(&curr_thread->children); 
+    printf("%s: exit(%d)\n", curr_thread->name , status);
+
+    for (element = list_begin(&parent->children);
+		  element != list_end(&parent->children);
 		  element = list_next(element))
       {
         struct child *tmp = list_entry(element, struct child, elem);
@@ -286,13 +281,13 @@ sys_exit (int status)
         }
       }
 
+      sema_up(&child->self->parent->sema_wait);
       child->exit_status =status;
       child->has_exited = true;
-      sema_up(&child->wait_sema);
-    
-  }
-  
-  printf("%s: exit(%d)\n", curr_thread->name , status);
+      thread_exit();
+
+
+
 
   thread_exit();
 
@@ -301,7 +296,7 @@ sys_exit (int status)
 pid_t
 sys_exec (const char *file)
 {
-
+  return process_execute(file);
 }
 
 int
@@ -416,25 +411,69 @@ sys_read (int fd, void *buffer, unsigned size)
 int
 sys_write (int fd, const void *buffer, unsigned size)
 {
+  if (buffer == NULL)
+    sys_exit(-1);
 
+  /* Handle STDOUT */
+  if (fd == 1) {
+    putbuf(buffer, size);
+    return size;
+  }
+
+  struct thread *t = thread_current();
+
+  /* Check for valid fd */
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return -1;
+
+  lock_acquire(&filesys_lock);
+  int bytes_written = file_write(t->fd_table[fd], buffer, size);
+  lock_release(&filesys_lock);
+
+  return bytes_written;
 }
 
 void
 sys_seek (int fd, unsigned position)
 {
+  struct thread *t = thread_current();
 
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return;
+
+  lock_acquire(&filesys_lock);
+  file_seek(t->fd_table[fd], position);
+  lock_release(&filesys_lock);
 }
 
 unsigned
 sys_tell (int fd)
 {
+  struct thread *t = thread_current();
 
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return -1;
+
+  lock_acquire(&filesys_lock);
+  unsigned pos = file_tell(t->fd_table[fd]);
+  lock_release(&filesys_lock);
+
+  return pos;
 }
 
 void
 sys_close (int fd)
 {
+  struct thread *t = thread_current();
 
+  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+    return;
+
+  lock_acquire(&filesys_lock);
+  file_close(t->fd_table[fd]);
+  lock_release(&filesys_lock);
+
+  t->fd_table[fd] = NULL;
 }
 
 

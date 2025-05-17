@@ -2,7 +2,6 @@
 #define USERPROG_SYSCALL_H
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
-#define BYTE 1
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "threads/synch.h"
@@ -12,15 +11,17 @@
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include <string.h>
+#define BYTE 1
+#define CODE_SEG_ADDR (void*)0x08048000
+#define VALID_ADDRESS(VADDR) ({VADDR>CODE_SEG_ADDR && VADDR<PHYS_BASE;})
 
 typedef int pid_t;
 
 void syscall_init (void);
 
 /*VADDR VALIDATIONS*/
-void* get_kernel_vaddr(const void*);
 void* get_next_arg(void**, const unsigned);
-void validate_ptr(const void*);
+void validate_vaddr(const void*);
 void validate_buffer(const void*, const unsigned);
 void validate_string(char*);
 

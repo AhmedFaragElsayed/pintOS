@@ -184,14 +184,7 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
-	 struct child *ch = malloc(sizeof(struct child));
-        if (ch != NULL) {
-            ch->tid = tid;
-            ch->exit_status = t->exit_status;
-            sema_init(&ch->wait_sema, 0);
-            ch->has_exited = false;
-            list_push_back(&thread_current()->children, &ch->elem);
-        }
+
 
 	/* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack'
@@ -226,6 +219,25 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+
+
+	// #ifdef USER_PROG
+	 if(tid != TID_ERROR)
+	 {
+		struct child *ch = malloc(sizeof(struct child));
+		if (ch != NULL)
+		{
+			ch->self = t;
+			ch->tid = tid;
+			ch->exit_status = t->exit_status;
+			ch->has_exited = false;
+			list_push_back(&thread_current()->children, &ch->elem);
+			t->parent = thread_current();
+			thread_current()->waiting_on = ch;
+		}
+
+	 }
+	// #endif
 
 	return tid;
 }
@@ -490,8 +502,13 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
 
-	t->parent = running_thread();
+	// #ifdef USER_PROG
+	t->parent = NULL;
 	list_init(&t->children);
+	t->waiting_on = NULL;
+	t->exit_status = 0;
+	sema_init(&t->sema_wait , 0);
+	// #endif
 
 	old_level = intr_disable ();
 	list_push_back (&all_list, &t->allelem);
