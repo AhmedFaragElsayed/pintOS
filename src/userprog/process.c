@@ -55,9 +55,9 @@ process_execute (const char *file_name)
 
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create(file_name_only, PRI_DEFAULT, start_process, fn_copy);
-    
+
     free(name_copy); // Free the name copy
-    
+
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
         return TID_ERROR;
@@ -94,7 +94,7 @@ start_process (void *file_name_)
 
     /* If load failed, quit. */
     palloc_free_page(file_name);
-    
+
     /* Signal parent about load success/failure */
     if (!success) {
         if (thread_current()->parent != NULL) {
@@ -147,8 +147,8 @@ process_wait (tid_t child_tid)
             break;
         }
     }
-	
-	
+
+
     /* If child not found or already waited for, return -1 */
     if (child == NULL || child->is_waited_on) {
 		// printf("nulllll");
@@ -179,6 +179,12 @@ process_exit (void)
 {
 	struct thread *cur = thread_current ();
 	uint32_t *pd;
+
+	if (cur->executable != NULL) {
+        file_allow_write(cur->executable);
+        file_close(cur->executable);
+        cur->executable = NULL;
+    }
 
 	/* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -398,7 +404,10 @@ load (const char *file_name, void (**eip) (void), void **esp, char **save_ptr)
 
 	done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	 if (!success && file != NULL) {
+        file_close(file);
+        thread_current()->executable = NULL;
+    }
 	return success;
 }
 
