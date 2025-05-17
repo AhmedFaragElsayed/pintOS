@@ -40,11 +40,22 @@ validate_buffer(const void* buffer , const unsigned size)
 void validate_string(char* str)
 {
   validate_vaddr(str);
-
-  for(; *str!='\0' ; ++str)
-  {
-    validate_vaddr(str);
+  
+  // Add a maximum length check to prevent infinite loops
+  size_t max_len = PGSIZE;  // Maximum reasonable string length
+  size_t i = 0;
+  
+  while (i < max_len) {
+    validate_vaddr(str + i);
+    if (str[i] == '\0')
+      break;
+    i++;
   }
+  
+  // If we reached the maximum length without finding a null terminator,
+  // the string is invalid
+  if (i == max_len)
+    sys_exit(-1);
 }
 
 
@@ -146,7 +157,7 @@ void
 sys_exec_wrapper (void* esp , uint32_t* eax)
 {
   const char* file = *(char**)get_next_arg(&esp , sizeof(char*));
-
+  validate_string((char*)file);
   *eax = sys_exec(file);
 }
 
@@ -303,25 +314,37 @@ sys_exit (int status)
 
     intr_set_level(old_level);
 
-
     sema_up(&parent->sema_wait);
 
-
-
-
-
-
-
-
+  // Close all open file descriptors
+  for (int fd = 0; fd < 128; fd++) {
+    if (curr_thread->fd_table[fd] != NULL) {
+      sys_close(fd);
+    }
+  }
 
   thread_exit();
-
 }
 
 pid_t
 sys_exec (const char *file)
 {
-  return process_execute(file);
+  if (file == NULL)
+    return -1;
+  
+  // Make a copy of the command line string
+  char *cmd_line_copy = palloc_get_page(0);
+  if (cmd_line_copy == NULL)
+    return -1;
+  
+  strlcpy(cmd_line_copy, file, PGSIZE);
+  
+  pid_t pid = process_execute(cmd_line_copy);
+  
+  // Free the copy after process_execute is done with it
+  palloc_free_page(cmd_line_copy);
+  
+  return pid;
 }
 
 int

@@ -1,5 +1,14 @@
 #include <syscall.h>
 #include "../syscall-nr.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Maximum length of a directory entry name. */
+#define READDIR_MAX_LEN 14
+
+/* Map identifier for memory mapped files. */
+typedef int mapid_t;
+typedef int pid_t;
 
 /* Invokes syscall NUMBER, passing no arguments, and returns the
    return value as an `int'. */
