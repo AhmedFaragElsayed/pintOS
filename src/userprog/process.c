@@ -124,25 +124,26 @@ process_wait (tid_t child_tid)
     /* Find the child in the current thread's children list */
     for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
         struct child *tmp = list_entry(e, struct child, elem);
-        if (tmp->tid == child_tid) {
+        if (tmp->self->tid == child_tid) {
             child = tmp;
             break;
         }
     }
 
     /* If child not found or already waited for, return -1 */
-    if (child == NULL || current->waiting_on == child) {
+    if (child == NULL || child->has_exited || child->is_waited_on) {
         return -1;
     }
 
     current->waiting_on = child;
+	child->is_waited_on = true;
 
     /* If the child hasn't exited yet, wait for it */
     if (!child->has_exited) {
-        sema_down(&child->self->sema_wait);
+        sema_down(&current->sema_wait);
     }
 
-    int status = child->exit_status;
+    int status = current->last_child_exit_status;
 
     /* Remove child from list and free its struct */
     list_remove(&child->elem);

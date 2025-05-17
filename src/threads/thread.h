@@ -108,7 +108,9 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     struct child* waiting_on;
     struct semaphore sema_wait;
+    struct list locks_list;
     bool child_loaded;
+   int last_child_exit_status;
    //  #endif
 
     /* Owned by thread.c. */
@@ -118,10 +120,9 @@ struct thread
   struct child
    {
       struct thread* self;                /* Pointer to the thread struct */
-      tid_t tid;                          /* Child thread identifier. */
       struct list_elem elem;              /* List element for child threads. */
-      int exit_status;                    /* Exit status of the child thread. */
       bool has_exited;                    /* Flag to check if child has exited. */
+      bool is_waited_on;                  /* Flag to check if parent is waiting. */
    };
 
 
@@ -160,6 +161,7 @@ void thread_set_priority (int);
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
+void push_thread_aquiring_lock(struct thread* t);
 int thread_get_load_avg (void);
 
 #endif /* threads/thread.h */

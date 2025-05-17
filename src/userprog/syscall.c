@@ -30,6 +30,7 @@ validate_vaddr(const void* ptr)
 void
 validate_buffer(const void* buffer , const unsigned size)
 {
+  validate_vaddr(buffer);
   for(unsigned i = 0 ; i < size ; ++i)
   {
     validate_vaddr(buffer + BYTE*i);
@@ -268,23 +269,47 @@ sys_exit (int status)
     struct child *child = NULL;
 
     printf("%s: exit(%d)\n", curr_thread->name , status);
-
+    enum intr_level old_level = intr_disable();
     for (element = list_begin(&parent->children);
 		  element != list_end(&parent->children);
 		  element = list_next(element))
       {
         struct child *tmp = list_entry(element, struct child, elem);
-        if (tmp->tid == child_tid)
+        if (tmp->self->tid == child_tid)
         {
         child = tmp;
         break;
         }
       }
+    intr_set_level(old_level);
 
-      sema_up(&child->self->parent->sema_wait);
-      child->exit_status =status;
-      child->has_exited = true;
-      thread_exit();
+    parent->last_child_exit_status = status;
+
+    child->has_exited = true;
+
+    // Release all locks held by the current thread
+
+    old_level = intr_disable();
+    element = list_begin(&curr_thread->locks_list);
+
+    while(element != list_end(&curr_thread->locks_list))
+    {
+        struct list_elem *next_elem = list_next(element);
+        struct lock *lock = list_entry(element, struct lock, elem);
+        lock_release(lock);
+
+        element = next_elem;
+    }
+
+    intr_set_level(old_level);
+
+
+    sema_up(&parent->sema_wait);
+
+
+
+
+
 
 
 
@@ -379,55 +404,63 @@ sys_filesize (int fd)
 
 }
 
-int
-sys_read (int fd, void *buffer, unsigned size)
+int sys_read (int fd, void *buffer, unsigned size)
 {
   if (buffer == NULL)
     sys_exit(-1);
+
+  struct thread *t = thread_current();
+  int bytes_read = -1;
 
   /* Handle STDIN */
   if (fd == 0) {
+    lock_acquire(&filesys_lock);
     uint8_t *buf = buffer;
-    unsigned i;
-    for (i = 0; i < size; i++)
+    for (unsigned i = 0; i < size; i++)
       buf[i] = input_getc();
-    return size;
+    bytes_read = size;
+    lock_release(&filesys_lock);
+    return bytes_read;
   }
 
-  struct thread *t = thread_current();
-
   /* Check for valid fd */
-  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+  if (fd < 0 || fd >= 128)
     return -1;
 
   lock_acquire(&filesys_lock);
-  int bytes_read = file_read(t->fd_table[fd], buffer, size);
+  if (t->fd_table[fd] != NULL) {
+    bytes_read = file_read(t->fd_table[fd], buffer, size);
+  }
   lock_release(&filesys_lock);
 
   return bytes_read;
-
 }
 
-int
-sys_write (int fd, const void *buffer, unsigned size)
+int sys_write (int fd, const void *buffer, unsigned size)
 {
   if (buffer == NULL)
     sys_exit(-1);
 
+  struct thread *t = thread_current();
+  int bytes_written = -1;
+
   /* Handle STDOUT */
   if (fd == 1) {
+    lock_acquire(&filesys_lock);
     putbuf(buffer, size);
-    return size;
+    bytes_written = size;
+    lock_release(&filesys_lock);
+    return bytes_written;
   }
 
-  struct thread *t = thread_current();
-
   /* Check for valid fd */
-  if (fd < 0 || fd >= 128 || t->fd_table[fd] == NULL)
+  if (fd < 0 || fd >= 128)
     return -1;
 
   lock_acquire(&filesys_lock);
-  int bytes_written = file_write(t->fd_table[fd], buffer, size);
+  if (t->fd_table[fd] != NULL) {
+    bytes_written = file_write(t->fd_table[fd], buffer, size);
+  }
   lock_release(&filesys_lock);
 
   return bytes_written;

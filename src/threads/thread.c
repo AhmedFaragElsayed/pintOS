@@ -228,12 +228,11 @@ thread_create (const char *name, int priority,
 		if (ch != NULL)
 		{
 			ch->self = t;
-			ch->tid = tid;
-			ch->exit_status = t->exit_status;
 			ch->has_exited = false;
 			list_push_back(&thread_current()->children, &ch->elem);
 			t->parent = thread_current();
 			thread_current()->waiting_on = ch;
+			ch->is_waited_on = false;
 		}
 
 	 }
@@ -508,6 +507,7 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->waiting_on = NULL;
 	t->exit_status = 0;
 	sema_init(&t->sema_wait , 0);
+	list_init(&t->locks_list);
 	// #endif
 
 	old_level = intr_disable ();
