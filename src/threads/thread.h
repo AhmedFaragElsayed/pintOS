@@ -119,8 +119,9 @@ struct thread
 
   struct child
    {
-      struct thread* self;                /* Pointer to the thread struct */
       struct list_elem elem;              /* List element for child threads. */
+      tid_t tid;                          /* Thread identifier. */
+      int exit_status;                 /* Exit status of the child thread. */
       bool has_exited;                    /* Flag to check if child has exited. */
       bool is_waited_on;                  /* Flag to check if parent is waiting. */
    };

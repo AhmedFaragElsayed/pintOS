@@ -267,63 +267,45 @@ sys_halt (void)
 void
 sys_exit (int status)
 {
+    struct thread *curr_thread = thread_current();
+    printf("%s: exit(%d)\n", curr_thread->name, status);
 
-  struct thread *curr_thread = thread_current();
-  curr_thread->exit_status = status;
+    struct thread *parent = curr_thread->parent;
+    if (parent != NULL) {
+        tid_t child_tid = curr_thread->tid;
+        struct child *child = NULL;
 
-
-  struct thread *parent = curr_thread->parent;
-
-
-    tid_t child_tid = curr_thread->tid;
-    struct list_elem *element;
-    struct child *child = NULL;
-
-    printf("%s: exit(%d)\n", curr_thread->name , status);
-    enum intr_level old_level = intr_disable();
-    for (element = list_begin(&parent->children);
-		  element != list_end(&parent->children);
-		  element = list_next(element))
-      {
-        struct child *tmp = list_entry(element, struct child, elem);
-        if (tmp->self->tid == child_tid)
-        {
-        child = tmp;
-        break;
+        /* Find our child structure in the parent's list */
+        struct list_elem *e;
+        for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
+            struct child *tmp = list_entry(e, struct child, elem);
+            if (tmp->tid == curr_thread->tid) {
+                child = tmp;
+                break;
+            }
         }
-      }
-    intr_set_level(old_level);
 
-    parent->last_child_exit_status = status;
+        if (child != NULL) {
+            /* Set exit status and mark as exited */
+            child->exit_status = status;
+            child->has_exited = true;
 
-    child->has_exited = true;
-
-    // Release all locks held by the current thread
-
-    old_level = intr_disable();
-    element = list_begin(&curr_thread->locks_list);
-
-    while(element != list_end(&curr_thread->locks_list))
-    {
-        struct list_elem *next_elem = list_next(element);
-        struct lock *lock = list_entry(element, struct lock, elem);
-        lock_release(lock);
-
-        element = next_elem;
+            /* If parent is waiting on this child, wake it up */
+            if (parent->waiting_on == child) {
+                sema_up(&parent->sema_wait);
+            }
+        }
     }
 
-    intr_set_level(old_level);
 
-    sema_up(&parent->sema_wait);
-
-  // Close all open file descriptors
-  for (int fd = 0; fd < 128; fd++) {
-    if (curr_thread->fd_table[fd] != NULL) {
-      sys_close(fd);
+    /* Close all open files */
+    for (int fd = 0; fd < 128; fd++) {
+        if (curr_thread->fd_table[fd] != NULL) {
+            sys_close(fd);
+        }
     }
-  }
 
-  thread_exit();
+    thread_exit();
 }
 
 pid_t

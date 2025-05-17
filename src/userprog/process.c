@@ -31,33 +31,45 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp, char** s
 tid_t
 process_execute (const char *file_name)
 {
-	char *fn_copy;
-	tid_t tid;
+    char *fn_copy;
+    tid_t tid;
 
-	/* Make a copy of FILE_NAME.
+    /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
-		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+    fn_copy = palloc_get_page (0);
+    if (fn_copy == NULL)
+        return TID_ERROR;
+    strlcpy(fn_copy, file_name, PGSIZE);
 
-	/* Parsed file name */
-	char *save_ptr;
-	file_name = strtok_r((char *) file_name, " ", &save_ptr);
+    /* Copy file_name before parsing */
+    char *name_copy = malloc(strlen(file_name) + 1);
+    if (name_copy == NULL) {
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
+    strlcpy(name_copy, file_name, strlen(file_name) + 1);
 
-	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
+    /* Parsed file name */
+    char *save_ptr;
+    char *file_name_only = strtok_r(name_copy, " ", &save_ptr);
 
-	sema_down(&thread_current()->sema_wait);
+    /* Create a new thread to execute FILE_NAME. */
+    tid = thread_create(file_name_only, PRI_DEFAULT, start_process, fn_copy);
+    
+    free(name_copy); // Free the name copy
+    
+    if (tid == TID_ERROR) {
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
 
-	if(!thread_current()->child_loaded)
-		return TID_ERROR;
+    /* Wait for child to load */
+    sema_down(&thread_current()->sema_wait);
 
+    if (!thread_current()->child_loaded)
+        return TID_ERROR;
 
-
-	return tid;
+    return tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -65,43 +77,46 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
-	char *file_name = file_name_;
-	struct intr_frame if_;
-	bool success;
+    char *file_name = file_name_;
+    struct intr_frame if_;
+    bool success;
 
-	/* the first token is file name */
-	char *save_ptr;
-	file_name = strtok_r(file_name, " ", &save_ptr);
+    /* the first token is file name */
+    char *save_ptr;
+    file_name = strtok_r(file_name, " ", &save_ptr);
 
-	/* Initialize interrupt frame and load executable. */
-	memset (&if_, 0, sizeof if_);
-	if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
-	if_.cs = SEL_UCSEG;
-	if_.eflags = FLAG_IF | FLAG_MBS;
-	success = load (file_name, &if_.eip, &if_.esp, &save_ptr);
+    /* Initialize interrupt frame and load executable. */
+    memset(&if_, 0, sizeof if_);
+    if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+    if_.cs = SEL_UCSEG;
+    if_.eflags = FLAG_IF | FLAG_MBS;
+    success = load(file_name, &if_.eip, &if_.esp, &save_ptr);
 
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
-	{
-		thread_current()->parent->child_loaded = false;
-		sema_up(&thread_current()->parent->sema_wait);
-		thread_exit ();
-	}
-	else
-	{
-		thread_current()->child_loaded = true;
-	}
+    /* If load failed, quit. */
+    palloc_free_page(file_name);
+    
+    /* Signal parent about load success/failure */
+    if (!success) {
+        if (thread_current()->parent != NULL) {
+            thread_current()->parent->child_loaded = false;
+            sema_up(&thread_current()->parent->sema_wait);
+        }
+        thread_exit();
+    } else {
+        if (thread_current()->parent != NULL) {
+            thread_current()->parent->child_loaded = true;
+            sema_up(&thread_current()->parent->sema_wait);
+        }
+    }
 
-
-	/* Start the user process by simulating a return from an
+    /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-	asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-	NOT_REACHED ();
+    asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
+    NOT_REACHED();
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -122,18 +137,24 @@ process_wait (tid_t child_tid)
     struct child *child = NULL;
 
     /* Find the child in the current thread's children list */
-    for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
-        struct child *tmp = list_entry(e, struct child, elem);
-        if (tmp->self->tid == child_tid) {
+	for (e = list_begin(&current->children); e != list_end(&current->children); e = list_next(e)) {
+		struct child *tmp = list_entry(e, struct child, elem);
+		// printf("e=%p\n", e);
+		// printf("Child %d has exit status %d\n", tmp->tid, tmp->exit_status);
+        if (tmp->tid == child_tid) {
             child = tmp;
+			// printf("Found child %d in parent's list\n", child_tid);
             break;
         }
     }
-
+	
+	
     /* If child not found or already waited for, return -1 */
-    if (child == NULL || child->has_exited || child->is_waited_on) {
-        return -1;
+    if (child == NULL || child->is_waited_on) {
+		// printf("nulllll");
+		return -1;
     }
+	// printf("Child %d has exit status %d\n", child_tid, child->exit_status);
 
     current->waiting_on = child;
 	child->is_waited_on = true;
@@ -143,7 +164,7 @@ process_wait (tid_t child_tid)
         sema_down(&current->sema_wait);
     }
 
-    int status = current->last_child_exit_status;
+    int status = child->exit_status;
 
     /* Remove child from list and free its struct */
     list_remove(&child->elem);

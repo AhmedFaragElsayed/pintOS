@@ -227,12 +227,15 @@ thread_create (const char *name, int priority,
 		struct child *ch = malloc(sizeof(struct child));
 		if (ch != NULL)
 		{
-			ch->self = t;
+			ch->tid = t->tid;
 			ch->has_exited = false;
-			list_push_back(&thread_current()->children, &ch->elem);
-			t->parent = thread_current();
-			thread_current()->waiting_on = ch;
+			ch->exit_status = -1;
+			// thread_current()->waiting_on = ch;
 			ch->is_waited_on = false;
+			t->parent = thread_current();
+			list_push_back(&thread_current()->children, &ch->elem);
+			sema_init(&t->sema_wait, 0);
+			t->child_loaded = false;
 		}
 
 	 }
