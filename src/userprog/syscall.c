@@ -297,6 +297,12 @@ sys_exit (int status)
         }
     }
 
+    struct list_elem *e;
+    while (!list_empty(&curr_thread->children)) {
+        e = list_pop_front(&curr_thread->children);
+        struct child *c = list_entry(e, struct child, elem);
+        free(c);
+    }
 
     /* Close all open files */
     for (int fd = 0; fd < 128; fd++) {
